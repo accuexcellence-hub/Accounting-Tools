@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ITR Computation Sheet Generator</title>
+<script src="https://cdn.jsdelivr.net/npm/html-docx-js/dist/html-docx.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+<style>
+  :root{
+    --navy:#1F3864; --lightgrey:#D9D9D9; --border:#999; --accent:#2E5395;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:Arial,Helvetica,sans-serif; margin:0; background:#f2f4f7; color:#222;}
+  header{background:var(--navy); color:#fff; padding:18px 24px;}
+  header h1{margin:0; font-size:22px;}
+  header p{margin:4px 0 0; font-size:13px; color:#cfd8e8;}
+  .wrap{max-width:1100px; margin:0 auto; padding:20px;}
+  .card{background:#fff; border-radius:8px; padding:18px 20px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .card h2{font-size:16px; color:var(--navy); margin:0 0 12px; border-bottom:2px solid var(--lightgrey); padding-bottom:6px;}
+  .row{display:flex; flex-wrap:wrap; gap:14px;}
+  .field{flex:1 1 220px; display:flex; flex-direction:column; margin-bottom:10px;}
+  .field.wide{flex:1 1 100%;}
+  label{font-size:12px; font-weight:bold; color:#444; margin-bottom:4px;}
+  input[type=text], input[type=number], input[type=date], textarea, select{
+    padding:7px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; font-family:inherit;
+  }
+  textarea{resize:vertical; min-height:90px; font-family:Consolas,monospace; font-size:12.5px;}
+  small.hint{color:#777; font-size:11px; margin-top:3px;}
+  button{
+    background:var(--accent); color:#fff; border:none; padding:9px 16px; border-radius:5px;
+    cursor:pointer; font-size:13px; font-weight:bold; margin-right:8px;
+  }
+  button.secondary{background:#6c757d;}
+  button.ghost{background:#fff; color:var(--accent); border:1px solid var(--accent);}
+  button:hover{opacity:.9;}
+  .filebox{border:2px dashed #bbb; border-radius:8px; padding:22px; text-align:center; background:#fafbfc; cursor:pointer;}
+  .filebox:hover{border-color:var(--accent);}
+  .toggle{display:flex; align-items:center; gap:8px; margin-bottom:10px;}
+  .msg{padding:8px 12px; border-radius:5px; font-size:13px; margin-top:10px;}
+  .msg.ok{background:#e6f4ea; color:#1e7e34;}
+  .msg.err{background:#fdecea; color:#a12622;}
+  #reportContainer{background:#fff; padding:0;}
+  .report-page{font-family:'Calibri',Arial,sans-serif; font-size:12px; padding:10px 4px;}
+  .report-page h1.title{text-align:center; font-size:19px; margin:0 0 2px;}
+  .report-page p.sub{text-align:center; font-style:italic; margin:0 0 14px; font-size:12px;}
+  table.rep{width:100%; border-collapse:collapse; margin-bottom:14px;}
+  table.rep td{padding:4px 8px; vertical-align:top; font-size:12px;}
+  table.info td.l{font-weight:bold; width:18%;}
+  table.info td.v{width:32%;}
+  table.comp td.label{width:75%;}
+  table.comp td.amt{width:25%; text-align:right;}
+  tr.section td{background:var(--lightgrey); font-weight:bold; padding:5px 8px;}
+  tr.total td{font-weight:bold; border-top:1.5px solid #000;}
+  tr.indent1 td.label{padding-left:24px;}
+  tr.indent2 td.label{padding-left:44px;}
+  table.grid{border:1px solid var(--border); border-collapse:collapse; width:100%; margin-bottom:14px;}
+  table.grid th, table.grid td{border:1px solid var(--border); padding:5px 8px; font-size:12px;}
+  table.grid th{background:#e7e6e6; text-align:left;}
+  h3.ann{color:var(--navy); font-size:14px; margin:18px 0 8px;}
+  .pagebreak{page-break-before:always;}
+  @media print{
+    header, .card, .no-print{display:none !important;}
+    body{background:#fff;}
+    #reportContainer{display:block !important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ITR Computation Sheet Generator</h1>
+  <p>Upload an ITR JSON (from the e-filing portal) → review/edit the extracted figures → generate a formatted computation sheet, ready to print or save as Word.</p>
+</header>
+
+<div class="wrap">
+
+  <!-- STEP 1: UPLOAD -->
+  <div class="card no-print">
+    <h2>Step 1 — Load Client Data</h2>
+    <div class="filebox" id="dropZone">
+      <p><strong>Click to choose a JSON file</strong> (the ITR JSON exported from the Income Tax portal / your filing software)</p>
+      <input type="file" id="jsonFile" accept=".json" style="display:none">
+    </div>
+    <div class="field wide" style="margin-top:12px;">
+      <label>...or paste the JSON here</label>
+      <textarea id="jsonPaste" placeholder="Paste ITR JSON content here"></textarea>
+    </div>
+    <button onclick="loadFromPaste()">Parse JSON</button>
+    <button class="secondary" onclick="clearAll()">Clear / Start New Client</button>
+    <div id="loadMsg"></div>
+  </div>
+
+  <!-- STEP 2: EDITABLE DATA -->
+  <div class="card no-print">
+    <h2>Step 2 — Assessee Details</h2>
+    <div class="row">
+      <div class="field"><label>Name of Assessee</label><input type="text" id="f_name"></div>
+      <div class="field"><label>Father's Name</label><input type="text" id="f_father"></div>
+      <div class="field"><label>PAN</label><input type="text" id="f_pan"></div>
+      <div class="field"><label>Date of Birth</label><input type="text" id="f_dob" placeholder="DD/MM/YYYY"></div>
+      <div class="field"><label>Status</label><input type="text" id="f_status" value="Individual"></div>
+      <div class="field"><label>Residential Status</label><input type="text" id="f_resstatus" value="Resident"></div>
+      <div class="field"><label>Gender</label><input type="text" id="f_gender"></div>
+      <div class="field"><label>Assessment Year</label><input type="text" id="f_ay"></div>
+      <div class="field"><label>ITR Form</label><input type="text" id="f_form"></div>
+      <div class="field"><label>Filing Status</label><input type="text" id="f_filingstatus" value="Original"></div>
+      <div class="field"><label>Aadhaar No.</label><input type="text" id="f_aadhaar"></div>
+      <div class="field"><label>Mobile No.</label><input type="text" id="f_mobile"></div>
+      <div class="field"><label>Email</label><input type="text" id="f_email"></div>
+      <div class="field"><label>Return Filed On</label><input type="text" id="f_filedon" placeholder="DD/MM/YYYY"></div>
+      <div class="field"><label>Acknowledgement No.</label><input type="text" id="f_ackno"></div>
+      <div class="field"><label>Nature of Business (if any)</label><input type="text" id="f_business"></div>
+      <div class="field wide"><label>Address</label><input type="text" id="f_address"></div>
+    </div>
+  </div>
+
+  <div class="card no-print">
+    <h2>Step 3 — Income Break-up</h2>
+    <div class="field wide">
+      <label>One line per income head, format: "Label = Amount"</label>
+      <textarea id="f_income" placeholder="Income from Salary = 180000&#10;Income from Business/Profession = 475157&#10;Short Term Capital Gain = 420&#10;Income from Other Sources = 459"></textarea>
+      <small class="hint">Add/remove/edit lines freely — these become the "Computation of Total Income" section.</small>
+    </div>
+    <div class="row">
+      <div class="field"><label>Gross Total Income</label><input type="number" id="f_gti"></div>
+      <div class="field"><label>Total Deductions (Chapter VI-A)</label><input type="number" id="f_viatotal"></div>
+      <div class="field"><label>Total Income</label><input type="number" id="f_ti"></div>
+      <div class="field"><label>Total Income (Rounded off u/s 288A)</label><input type="number" id="f_tirounded"></div>
+    </div>
+    <div class="field wide">
+      <label>Chapter VI-A Deduction Break-up (optional), format: "Section = Amount"</label>
+      <textarea id="f_via" placeholder="Section 80C = 5012"></textarea>
+    </div>
+  </div>
+
+  <div class="card no-print">
+    <h2>Step 4 — Tax Computation</h2>
+    <div class="row">
+      <div class="field"><label>Regime</label>
+        <select id="f_regime"><option value="new">New Tax Regime (115BAC)</option><option value="old">Old / Existing Regime</option></select>
+      </div>
+      <div class="field"><label>Tax on Normal (Slab) Income</label><input type="number" id="f_taxnormal"></div>
+      <div class="field"><label>Tax on Special Rate Income (Cap. Gains etc.)</label><input type="number" id="f_taxspecial"></div>
+      <div class="field"><label>Rebate u/s 87A</label><input type="number" id="f_rebate"></div>
+      <div class="field"><label>Surcharge</label><input type="number" id="f_surcharge"></div>
+      <div class="field"><label>Health &amp; Education Cess @4%</label><input type="number" id="f_cess"></div>
+      <div class="field"><label>Interest u/s 234A/B/C (if any)</label><input type="number" id="f_interest" value="0"></div>
+      <div class="field"><label>Total Tax Liability</label><input type="number" id="f_totaltax"></div>
+      <div class="field"><label>T.D.S.</label><input type="number" id="f_tds" value="0"></div>
+      <div class="field"><label>T.C.S.</label><input type="number" id="f_tcs" value="0"></div>
+      <div class="field"><label>Advance Tax</label><input type="number" id="f_advtax" value="0"></div>
+      <div class="field"><label>Self-Assessment Tax</label><input type="number" id="f_satax" value="0"></div>
+      <div class="field"><label>Net Tax Payable / (Refundable)</label><input type="number" id="f_netpayable"></div>
+    </div>
+    <button class="ghost" onclick="autoCalcTax()">Auto-Calculate (New Regime, AY 2025-26 slabs)</button>
+    <small class="hint">Auto-calc is a convenience for the standard new-regime slabs; always verify against the official utility, especially for special-rate income, surcharge or old-regime cases.</small>
+  </div>
+
+  <div class="card no-print">
+    <h2>Step 5 — Bank Accounts</h2>
+    <div class="field wide">
+      <label>One per line: "Bank Name | Account No | IFSC | Type | Prevalidated | Nominated for Refund"</label>
+      <textarea id="f_banks" placeholder="Canara Bank | 5914120000405 | CNRB0005914 | Saving | Yes | Yes"></textarea>
+    </div>
+  </div>
+
+  <div class="card no-print">
+    <div class="toggle">
+      <input type="checkbox" id="f_hasbusiness" onchange="toggleBusiness()">
+      <label style="margin:0;">Include Business/Audit Schedules (Balance Sheet, P&amp;L, Depreciation, Audit Info) — for ITR-3 / ITR-4 audit cases</label>
+    </div>
+    <div id="businessSection" style="display:none;">
+      <h2 style="border:none; margin-top:14px;">Step 6 — Business Schedules</h2>
+      <div class="field wide">
+        <label>Trading &amp; Profit/Loss Account — one per line: "Label = Amount"</label>
+        <textarea id="f_pl" placeholder="Sales / Gross Receipts = 13563298&#10;Closing Stock = 5606710&#10;Opening Stock = 7839640&#10;Purchases = 8177498&#10;Gross Profit = 2419617&#10;Employee Cost = 700095&#10;Other Expenses = 1023463&#10;Depreciation = 122393&#10;Net Profit (PBT) = 474721"></textarea>
+      </div>
+      <div class="row">
+        <div class="field wide">
+          <label>Balance Sheet — Sources of Funds, one per line: "Label = Amount"</label>
+          <textarea id="f_bs_sources" placeholder="Proprietor's Capital = 1367591&#10;Secured Loans = 2999888&#10;Unsecured Loans = 5205877"></textarea>
+        </div>
+        <div class="field wide">
+          <label>Balance Sheet — Application of Funds, one per line: "Label = Amount"</label>
+          <textarea id="f_bs_application" placeholder="Net Fixed Assets = 730015&#10;Inventories = 5606710&#10;Sundry Debtors = 549926&#10;Cash & Bank = 611338&#10;Net Current Assets = 8843341"></textarea>
+        </div>
+      </div>
+      <div class="field wide">
+        <label>Depreciation Chart — one per line: "Block of Assets | Rate | Amount"</label>
+        <textarea id="f_dep" placeholder="Plant & Machinery | 15% | 120784"></textarea>
+      </div>
+      <h2 style="border:none; margin-top:14px;">Audit Information (u/s 44AB)</h2>
+      <div class="row">
+        <div class="field"><label>Auditor Name</label><input type="text" id="f_auditorname"></div>
+        <div class="field"><label>Membership No.</label><input type="text" id="f_auditormemno"></div>
+        <div class="field"><label>Audit Firm</label><input type="text" id="f_auditfirm"></div>
+        <div class="field"><label>Firm PAN</label><input type="text" id="f_auditfirmpan"></div>
+        <div class="field"><label>Date of Audit Report</label><input type="text" id="f_auditdate"></div>
+        <div class="field"><label>UDIN</label><input type="text" id="f_udin"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card no-print">
+    <h2>Step 7 — Generate</h2>
+    <button onclick="generateReport()">Generate Computation Sheet</button>
+    <button class="ghost" onclick="window.print()">Print / Save as PDF</button>
+    <button class="ghost" onclick="downloadWord()">Download as Word (.docx)</button>
+  </div>
+
+  <div class="card" id="reportCard" style="display:none;">
+    <div id="reportContainer"></div>
+  </div>
+
+</div>
+
+<script>
+/* ---------------- Utility ---------------- */
+function inr(n){
+  n = Number(n)||0;
+  const neg = n<0; n = Math.round(Math.abs(n));
+  let s = n.toString();
+  let last3 = s.slice(-3);
+  let other = s.slice(0,-3);
+  if(other!=='') last3 = ','+last3;
+  other = other.replace(/\B(?=(\d{2})+(?!\d))/g,',');
+  return (neg?'-':'') + other + last3;
+}
+function num(v){ const n = parseFloat(v); return isNaN(n)?0:n; }
+
+function deepFind(obj,key,seen){
+  seen = seen || new Set();
+  if(!obj || typeof obj!=='object' || seen.has(obj)) return undefined;
+  seen.add(obj);
+  if(Object.prototype.hasOwnProperty.call(obj,key)) return obj[key];
+  for(const k in obj){
+    const v = obj[k];
+    if(v && typeof v==='object'){
+      const r = deepFind(v,key,seen);
+      if(r!==undefined) return r;
+    }
+  }
+  return undefined;
+}
+function deepFindAllArrays(obj,predicate,seen,results){
+  seen = seen || new Set(); results = results || [];
+  if(!obj || typeof obj!=='object' || seen.has(obj)) return results;
+  seen.add(obj);
+  if(Array.isArray(obj)){
+    if(obj.length && obj[0] && typeof obj[0]==='object' && predicate(obj[0])) results.push(obj);
+    obj.forEach(item=>deepFindAllArrays(item,predicate,seen,results));
+  } else {
+    for(const k in obj) deepFindAllArrays(obj[k],predicate,seen,results);
+  }
+  return results;
+}
+function niceSection(key){
+  return key.replace(/^Section/,'Section ').replace(/([a-z])([A-Z])/g,'$1 $2').trim();
+}
+function assembleName(an){
+  if(!an) return '';
+  const parts = [an.FirstName, an.MiddleName, an.SurNameOrOrgName].filter(Boolean);
+  return parts.length? parts.join(' ') : '';
+}
+function assembleAddress(a){
+  if(!a) return '';
+  const parts = [a.ResidenceNo,a.ResidenceName,a.RoadOrStreet,a.LocalityOrArea,a.CityOrTownOrDistrict,a.PinCode].filter(Boolean);
+  return parts.join(', ');
+}
+
+/* ---------------- Load & Parse ---------------- */
+document.getElementById('dropZone').addEventListener('click',()=>document.getElementById('jsonFile').click());
+document.getElementById('jsonFile').addEventListener('change',function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    document.getElementById('jsonPaste').value = evt.target.result;
+    loadFromPaste();
+  };
+  reader.readAsText(file);
+});
+
+function loadFromPaste(){
+  const raw = document.getElementById('jsonPaste').value.trim();
+  const msg = document.getElementById('loadMsg');
+  if(!raw){ msg.innerHTML = '<div class="msg err">Please choose a file or paste JSON content first.</div>'; return; }
+  let data;
+  try{ data = JSON.parse(raw); }
+  catch(e){ msg.innerHTML = '<div class="msg err">Could not parse JSON: '+e.message+'</div>'; return; }
+  try{
+    const parsed = parseITR(data);
+    fillForm(parsed);
+    msg.innerHTML = '<div class="msg ok">JSON parsed and fields pre-filled below. Please review every figure before generating the final sheet — auto-detection is best-effort and field names vary slightly between ITR-1/2/3/4.</div>';
+  }catch(e){
+    msg.innerHTML = '<div class="msg err">Parsed the JSON but could not auto-map fields ('+e.message+'). You can still fill the form manually below.</div>';
+  }
+}
+
+function clearAll(){
+  document.querySelectorAll('input[type=text],input[type=number],textarea').forEach(el=>el.value='');
+  document.getElementById('f_status').value='Individual';
+  document.getElementById('f_resstatus').value='Resident';
+  document.getElementById('f_filingstatus').value='Original';
+  document.getElementById('f_hasbusiness').checked=false;
+  toggleBusiness();
+  document.getElementById('loadMsg').innerHTML='';
+  document.getElementById('reportCard').style.display='none';
+}
+
+function toggleBusiness(){
+  document.getElementById('businessSection').style.display = document.getElementById('f_hasbusiness').checked ? 'block':'none';
+}
+
+/* ---------------- Core Parser ---------------- */
+function parseITR(data){
+  const wrap = data.ITR || data;
+  const formKey = Object.keys(wrap).find(k=>/^ITR/i.test(k)) || Object.keys(wrap)[0];
+  const root = wrap[formKey];
+  const out = {};
+
+  const pi = deepFind(root,'PersonalInfo') || {};
+  out.name = assembleName(pi.AssesseeName);
+  out.pan = pi.PAN || deepFind(root,'PAN') || '';
+  out.address = assembleAddress(pi.Address);
+  out.dob = pi.DOB || '';
+  out.status = pi.Status==='I' ? 'Individual' : (pi.Status||'');
+  out.aadhaar = pi.AadhaarCardNo || '';
+  out.mobile = (pi.Address && pi.Address.MobileNo) || '';
+  out.email = (pi.Address && pi.Address.EmailAddress) || '';
+
+  const fs = deepFind(root,'FilingStatus') || {};
+  out.residentialStatus = fs.ResidentialStatus==='RES' ? 'Resident' : (fs.ResidentialStatus||'');
+
+  const ver = deepFind(root,'Verification') || {};
+  out.fatherName = (ver.Declaration && ver.Declaration.FatherName) || '';
+  out.verifyDate = ver.Date || '';
+
+  let formName='', ay='';
+  for(const k in root){
+    const v = root[k];
+    if(v && typeof v==='object' && v.FormName){ formName=v.FormName; ay=v.AssessmentYear; break; }
+  }
+  out.formName = formName || formKey;
+  out.assessmentYear = ay ? (ay+'-'+(parseInt(ay)+1).toString().slice(-2)) : '';
+
+  const nob = deepFind(root,'NatureOfBusiness');
+  if(nob && nob[0]) out.natureOfBusiness = (nob[0].TradeName1||'') + ' (Code '+(nob[0].Code||'')+')';
+  else out.natureOfBusiness = '';
+
+  // Income
+  const ti = deepFind(root,'PartB-TI') || deepFind(root,'PartB_TI') || {};
+  const incomeLines = [];
+  const salary = ti.Salaries || 0;
+  const hp = ti.IncomeFromHP || 0;
+  const biz = (ti.ProfBusGain && ti.ProfBusGain.TotProfBusGain) || 0;
+  const stcg = (ti.CapGain && ti.CapGain.ShortTerm && ti.CapGain.ShortTerm.TotalShortTerm) || 0;
+  const ltcg = (ti.CapGain && ti.CapGain.LongTerm && ti.CapGain.LongTerm.TotalLongTerm) || 0;
+  const os = (ti.IncFromOS && ti.IncFromOS.TotIncFromOS) || 0;
+  if(salary) incomeLines.push('Income from Salary = '+salary);
+  if(hp) incomeLines.push('Income from House Property = '+hp);
+  if(biz) incomeLines.push('Income from Business/Profession = '+biz);
+  if(stcg) incomeLines.push('Short Term Capital Gain = '+stcg);
+  if(ltcg) incomeLines.push('Long Term Capital Gain = '+ltcg);
+  if(os) incomeLines.push('Income from Other Sources = '+os);
+  out.incomeText = incomeLines.join('\n');
+
+  out.gti = ti.GrossTotalIncome || deepFind(root,'GrossTotalIncome') || 0;
+  out.viaTotal = (ti.DeductionsUndSchVIADtl && ti.DeductionsUndSchVIADtl.TotDeductUndSchVIA) || 0;
+  out.totalIncome = ti.TotalIncome || 0;
+  out.totalIncomeRounded = out.totalIncome ? (Math.round(out.totalIncome/10)*10) : (deepFind(root,'TotalIncome')||0);
+
+  const via = deepFind(root,'DeductUndChapVIA') || {};
+  const viaLines = [];
+  Object.keys(via).forEach(k=>{
+    if(typeof via[k]==='number' && via[k]>0 && !/^Tot/.test(k)) viaLines.push(niceSection(k)+' = '+via[k]);
+  });
+  out.viaText = viaLines.join('\n');
+
+  // Tax
+  const tti = deepFind(root,'PartB_TTI') || deepFind(root,'PartB-TTI') || {};
+  const taxOnTI = (tti.ComputationOfTaxLiability && tti.ComputationOfTaxLiability.TaxPayableOnTI) || {};
+  out.taxNormal = taxOnTI.TaxAtNormalRatesOnAggrInc || 0;
+  out.taxSpecial = taxOnTI.TaxAtSpecialRates || 0;
+  out.rebate = taxOnTI.Rebate87A || 0;
+  out.surcharge = taxOnTI.TotalSurcharge || 0;
+  out.cess = taxOnTI.EducationCess || 0;
+  const paid = (tti.TaxPaid && tti.TaxPaid.TaxesPaid) || {};
+  out.tds = paid.TDS || 0;
+  out.tcs = paid.TCS || 0;
+  out.advanceTax = paid.AdvanceTax || 0;
+  out.selfAssessment = paid.SelfAssessmentTax || 0;
+
+  const gross = (tti.ComputationOfTaxLiability && tti.ComputationOfTaxLiability.GrossTaxPayable) || 0;
+  out.totalTaxLiability = ((out.taxNormal - out.rebate) + out.taxSpecial + out.surcharge + out.cess) || gross || 0;
+  const totalPaid = out.tds + out.tcs + out.advanceTax + out.selfAssessment;
+  out.netPayable = Math.round((out.totalTaxLiability - totalPaid)/10)*10;
+
+  // Bank accounts
+  const bankArrays = deepFindAllArrays(root, o=>o && (o.IFSCCode || o.IFSC));
+  const banks = []; const seenAcc = new Set();
+  bankArrays.forEach(arr=>arr.forEach(b=>{
+    const acc = b.BankAccountNo || b.AccountNo || '';
+    if(seenAcc.has(acc)) return; seenAcc.add(acc);
+    banks.push([
+      b.BankName || '', acc, b.IFSCCode || b.IFSC || '',
+      b.AccountType || b.Type || '',
+      (b.Prevalidated===true||b.Prevalidated==='Y')?'Yes':(b.Prevalidated||''),
+      (b.UseForRefund===true||b.UseForRefund==='true'||b.NominateRefund==='Y')?'Yes':'No'
+    ].join(' | '));
+  }));
+  out.banksText = banks.join('\n');
+
+  // Business schedules
+  const bs = deepFind(root,'PARTA_BS');
+  const pl = deepFind(root,'PARTA_PL');
+  const trading = deepFind(root,'TradingAccount');
+  const dep = deepFind(root,'ScheduleDEP');
+  const audit = deepFind(root,'AuditInfo');
+  out.hasBusiness = !!(bs || pl || trading);
+
+  if(pl || trading){
+    const plLines = [];
+    try{
+      if(trading){
+        plLines.push('Sales / Gross Receipts = '+(trading.SalesGrossReceiptsTotal||trading.SaleOfGoods||0));
+        if(trading.ClsngStckOfFinishedStcks) plLines.push('Closing Stock = '+trading.ClsngStckOfFinishedStcks);
+        if(trading.OpngStckOfFinishedStcks) plLines.push('Opening Stock = '+trading.OpngStckOfFinishedStcks);
+        if(trading.Purchases) plLines.push('Purchases = '+trading.Purchases);
+        if(trading.CarriageInward) plLines.push('Carriage Inward = '+trading.CarriageInward);
+        if(trading.PowerAndFuel) plLines.push('Power and Fuel = '+trading.PowerAndFuel);
+        if(trading.DirectExpensesTotal) plLines.push('Other Direct Expenses = '+trading.DirectExpensesTotal);
+        if(trading.GrossProfitFrmBusProf) plLines.push('Gross Profit = '+trading.GrossProfitFrmBusProf);
+      }
+      if(pl){
+        const d = pl.DebitsToPL || {};
+        if(d.EmployeeComp && d.EmployeeComp.TotEmployeeComp) plLines.push('Employee Cost = '+d.EmployeeComp.TotEmployeeComp);
+        if(d.ProfessionalConstDtls && d.ProfessionalConstDtls.Total) plLines.push('Professional Charges = '+d.ProfessionalConstDtls.Total);
+        if(d.ConveyanceExp) plLines.push('Conveyance = '+d.ConveyanceExp);
+        if(d.AuditFee) plLines.push('Audit Fee = '+d.AuditFee);
+        if(d.OtherExpenses) plLines.push('Other Expenses = '+d.OtherExpenses);
+        if(d.DepreciationAmort) plLines.push('Depreciation = '+d.DepreciationAmort);
+        if(d.PBT) plLines.push('Net Profit (PBT) = '+d.PBT);
+      }
+    }catch(e){}
+    out.plText = plLines.join('\n');
+  } else out.plText = '';
+
+  if(bs){
+    try{
+      const src = bs.FundSrc || {};
+      const srcLines = [];
+      if(src.PropFund && src.PropFund.TotPropFund) srcLines.push("Proprietor's Capital = "+src.PropFund.TotPropFund);
+      if(src.LoanFunds && src.LoanFunds.SecrLoan && src.LoanFunds.SecrLoan.TotSecrLoan) srcLines.push('Secured Loans = '+src.LoanFunds.SecrLoan.TotSecrLoan);
+      if(src.LoanFunds && src.LoanFunds.UnsecrLoan && src.LoanFunds.UnsecrLoan.TotUnSecrLoan) srcLines.push('Unsecured Loans = '+src.LoanFunds.UnsecrLoan.TotUnSecrLoan);
+      out.bsSourcesText = srcLines.join('\n');
+
+      const app = bs.FundApply || {};
+      const appLines = [];
+      if(app.FixedAsset && app.FixedAsset.TotFixedAsset) appLines.push('Net Fixed Assets = '+app.FixedAsset.TotFixedAsset);
+      if(app.CurrAssetLoanAdv){
+        const ca = app.CurrAssetLoanAdv;
+        if(ca.CurrAsset && ca.CurrAsset.Inventories && ca.CurrAsset.Inventories.TotInventries) appLines.push('Inventories = '+ca.CurrAsset.Inventories.TotInventries);
+        if(ca.CurrAsset && ca.CurrAsset.SndryDebtors) appLines.push('Sundry Debtors = '+ca.CurrAsset.SndryDebtors);
+        if(ca.CurrAsset && ca.CurrAsset.CashOrBankBal && ca.CurrAsset.CashOrBankBal.TotCashOrBankBal) appLines.push('Cash & Bank = '+ca.CurrAsset.CashOrBankBal.TotCashOrBankBal);
+        if(ca.NetCurrAsset) appLines.push('Net Current Assets = '+ca.NetCurrAsset);
+      }
+      out.bsApplicationText = appLines.join('\n');
+    }catch(e){ out.bsSourcesText=''; out.bsApplicationText=''; }
+  } else { out.bsSourcesText=''; out.bsApplicationText=''; }
+
+  if(dep && dep.SummaryFromDeprSch){
+    try{
+      const s = dep.SummaryFromDeprSch;
+      const depLines = [];
+      const pm = s.PlantMachinerySummary || {};
+      if(pm.DeprBlockTot15Percent) depLines.push('Plant & Machinery | 15% | '+pm.DeprBlockTot15Percent);
+      if(pm.DeprBlockTot30Percent) depLines.push('Plant & Machinery | 30% | '+pm.DeprBlockTot30Percent);
+      if(pm.DeprBlockTot40Percent) depLines.push('Plant & Machinery | 40% | '+pm.DeprBlockTot40Percent);
+      if(pm.DeprBlockTot45Percent) depLines.push('Plant & Machinery | 45% | '+pm.DeprBlockTot45Percent);
+      if(s.FurnitureSummary) depLines.push('Furniture | - | '+s.FurnitureSummary);
+      if(s.IntangibleAssetSummary) depLines.push('Intangible Assets | - | '+s.IntangibleAssetSummary);
+      if(s.ShipsSummary) depLines.push('Ships | - | '+s.ShipsSummary);
+      out.depText = depLines.join('\n');
+    }catch(e){ out.depText=''; }
+  } else out.depText='';
+
+  if(audit){
+    out.auditorName = audit.AuditorName || '';
+    out.auditorMemNo = audit.AuditorMemNo || '';
+    out.auditFirm = (audit.AudFrmName||'') + (audit.AudFrmRegNo? ' (FRN '+audit.AudFrmRegNo+')':'');
+    out.auditFirmPan = audit.AudFrmPAN || '';
+    out.auditDate = audit.AuditDate || '';
+    out.udin = audit.UDIN || '';
+  }
+
+  return out;
+}
+
+/* ---------------- Fill form from parsed data ---------------- */
+function fillForm(p){
+  const set=(id,v)=>{ if(v!==undefined && v!==null && v!=='') document.getElementById(id).value = v; };
+  set('f_name', p.name);
+  set('f_father', p.fatherName);
+  set('f_pan', p.pan);
+  set('f_dob', p.dob);
+  set('f_status', p.status);
+  set('f_resstatus', p.residentialStatus);
+  set('f_ay', p.assessmentYear);
+  set('f_form', p.formName);
+  set('f_aadhaar', p.aadhaar);
+  set('f_mobile', p.mobile);
+  set('f_email', p.email);
+  set('f_business', p.natureOfBusiness);
+  set('f_address', p.address);
+  set('f_income', p.incomeText);
+  set('f_gti', p.gti);
+  set('f_viatotal', p.viaTotal);
+  set('f_ti', p.totalIncome);
+  set('f_tirounded', p.totalIncomeRounded);
+  set('f_via', p.viaText);
+  set('f_taxnormal', p.taxNormal);
+  set('f_taxspecial', p.taxSpecial);
+  set('f_rebate', p.rebate);
+  set('f_surcharge', p.surcharge);
+  set('f_cess', p.cess);
+  set('f_totaltax', p.totalTaxLiability);
+  set('f_tds', p.tds);
+  set('f_tcs', p.tcs);
+  set('f_advtax', p.advanceTax);
+  set('f_satax', p.selfAssessment);
+  set('f_netpayable', p.netPayable);
+  set('f_banks', p.banksText);
+
+  if(p.hasBusiness){
+    document.getElementById('f_hasbusiness').checked = true;
+    toggleBusiness();
+    set('f_pl', p.plText);
+    set('f_bs_sources', p.bsSourcesText);
+    set('f_bs_application', p.bsApplicationText);
+    set('f_dep', p.depText);
+    set('f_auditorname', p.auditorName);
+    set('f_auditormemno', p.auditorMemNo);
+    set('f_auditfirm', p.auditFirm);
+    set('f_auditfirmpan', p.auditFirmPan);
+    set('f_auditdate', p.auditDate);
+    set('f_udin', p.udin);
+  }
+}
+
+/* ---------------- Auto tax calc (New Regime, AY2025-26 slabs) ---------------- */
+function autoCalcTax(){
+  const ti = num(document.getElementById('f_tirounded').value) || num(document.getElementById('f_ti').value);
+  let tax=0;
+  const slabs = [[300000,0],[700000,.05],[1000000,.10],[1200000,.15],[1500000,.20],[Infinity,.30]];
+  let prev=0;
+  for(const [limit,rate] of slabs){
+    if(ti>prev){ tax += (Math.min(ti,limit)-prev)*rate; }
+    prev=limit;
+  }
+  tax = Math.round(tax);
+  const rebate = ti<=700000 ? tax : 0;
+  document.getElementById('f_taxnormal').value = tax;
+  document.getElementById('f_rebate').value = rebate;
+  const special = num(document.getElementById('f_taxspecial').value);
+  const surcharge = num(document.getElementById('f_surcharge').value);
+  const afterRebate = (tax-rebate) + special + surcharge;
+  const cess = Math.round(afterRebate*0.04);
+  document.getElementById('f_cess').value = cess;
+  const totalTax = afterRebate + cess;
+  document.getElementById('f_totaltax').value = totalTax;
+  const paid = num(document.getElementById('f_tds').value)+num(document.getElementById('f_tcs').value)+num(document.getElementById('f_advtax').value)+num(document.getElementById('f_satax').value);
+  document.getElementById('f_netpayable').value = Math.round((totalTax-paid)/10)*10;
+}
+
+/* ---------------- Parse "Label = Amount" / pipe lines ---------------- */
+function parseKV(text){
+  return text.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{
+    const idx = l.lastIndexOf('=');
+    if(idx===-1) return [l,''];
+    return [l.slice(0,idx).trim(), l.slice(idx+1).trim()];
+  });
+}
+function parsePipe(text){
+  return text.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>l.split('|').map(x=>x.trim()));
+}
+
+/* ---------------- Report rendering ---------------- */
+function row(label, amount, cls){
+  const cssClass = cls || '';
+  const amtStr = (amount===''||amount===undefined) ? '' : (isNaN(amount) ? amount : inr(amount));
+  return '<tr class="'+cssClass+'"><td class="label">'+label+'</td><td class="amt">'+amtStr+'</td></tr>';
+}
+
+function generateReport(){
+  const g = id=>document.getElementById(id).value;
+  const name=g('f_name'), pan=g('f_pan'), father=g('f_father'), address=g('f_address');
+  const ay=g('f_ay'), form=g('f_form');
+
+  let html = '<div class="report-page">';
+  html += '<h1 class="title">COMPUTATION OF TOTAL INCOME</h1>';
+  html += '<p class="sub">Assessment Year '+ay+'</p>';
+
+  html += '<table class="rep info">';
+  html += '<tr><td class="l">Name of Assessee</td><td class="v">'+name+'</td><td class="l">Father\'s Name</td><td class="v">'+father+'</td></tr>';
+  html += '<tr><td class="l">Address</td><td class="v">'+address+'</td><td class="l">Status</td><td class="v">'+g('f_status')+'</td></tr>';
+  html += '<tr><td class="l">PAN</td><td class="v">'+pan+'</td><td class="l">Date of Birth</td><td class="v">'+g('f_dob')+'</td></tr>';
+  html += '<tr><td class="l">Residential Status</td><td class="v">'+g('f_resstatus')+'</td><td class="l">Filing Status</td><td class="v">'+g('f_filingstatus')+'</td></tr>';
+  html += '<tr><td class="l">Return Filed On</td><td class="v">'+g('f_filedon')+'</td><td class="l">Acknowledgement No.</td><td class="v">'+g('f_ackno')+'</td></tr>';
+  html += '<tr><td class="l">Aadhaar No.</td><td class="v">'+g('f_aadhaar')+'</td><td class="l">Mobile No.</td><td class="v">'+g('f_mobile')+'</td></tr>';
+  html += '<tr><td class="l">Email</td><td class="v">'+g('f_email')+'</td><td class="l">ITR Form</td><td class="v">'+form+'</td></tr>';
+  if(g('f_business')) html += '<tr><td class="l">Nature of Business</td><td class="v" colspan="3">'+g('f_business')+'</td></tr>';
+  html += '</table>';
+
+  // Computation table
+  html += '<table class="rep comp">';
+  html += '<tr class="section"><td colspan="2">Computation of Total Income</td></tr>';
+  parseKV(g('f_income')).forEach(([l,v])=>{ html += row(l, num(v), 'indent1'); });
+  html += row('Gross Total Income', num(g('f_gti')), 'total');
+  const viaLines = parseKV(g('f_via'));
+  html += row('Less: Deductions under Chapter VI-A', num(g('f_viatotal')));
+  viaLines.forEach(([l,v])=>{ html += row(l, num(v), 'indent1'); });
+  html += row('Total Income', num(g('f_ti')), 'total');
+  html += row('Round off u/s 288A', num(g('f_tirounded')), 'total');
+  html += '</table>';
+
+  // Tax table
+  html += '<table class="rep comp">';
+  html += '<tr class="section"><td colspan="2">Tax Computation</td></tr>';
+  html += row('Tax on Normal (Slab) Income', num(g('f_taxnormal')), 'indent1');
+  html += row('Tax on Special Rate Income', num(g('f_taxspecial')), 'indent1');
+  html += row('Less: Rebate u/s 87A', num(g('f_rebate')), 'indent1');
+  html += row('Add: Surcharge', num(g('f_surcharge')), 'indent1');
+  html += row('Add: Health & Education Cess @ 4%', num(g('f_cess')), 'indent1');
+  if(num(g('f_interest'))) html += row('Add: Interest u/s 234A/B/C', num(g('f_interest')), 'indent1');
+  html += row('Total Tax Liability', num(g('f_totaltax')), 'total');
+  html += row('Less: T.D.S.', num(g('f_tds')));
+  html += row('Less: T.C.S.', num(g('f_tcs')));
+  html += row('Less: Advance Tax', num(g('f_advtax')));
+  html += row('Less: Self-Assessment Tax', num(g('f_satax')));
+  html += row('Net Tax Payable / (Refundable)', num(g('f_netpayable')), 'total');
+  html += '</table>';
+
+  // Bank accounts
+  const banks = parsePipe(g('f_banks'));
+  if(banks.length){
+    html += '<h3 class="ann">Bank Account Details</h3>';
+    html += '<table class="grid"><tr><th>Bank Name</th><th>Account No.</th><th>IFSC</th><th>Type</th><th>Prevalidated</th><th>Nominated for Refund</th></tr>';
+    banks.forEach(b=>{ html += '<tr>'+b.map(c=>'<td>'+(c||'')+'</td>').join('')+'</tr>'; });
+    html += '</table>';
+  }
+
+  const hasBiz = document.getElementById('f_hasbusiness').checked;
+  if(hasBiz){
+    html += '<div class="pagebreak"></div>';
+    const plLines = parseKV(g('f_pl'));
+    if(plLines.length){
+      html += '<h3 class="ann">Annexure: Trading &amp; Profit and Loss Account</h3>';
+      html += '<table class="rep comp">';
+      plLines.forEach(([l,v])=>{ html += row(l, num(v), 'indent1'); });
+      html += '</table>';
+    }
+    const srcLines = parseKV(g('f_bs_sources'));
+    const appLines = parseKV(g('f_bs_application'));
+    if(srcLines.length || appLines.length){
+      html += '<h3 class="ann">Annexure: Balance Sheet</h3>';
+      html += '<table class="rep comp">';
+      html += '<tr class="section"><td colspan="2">Sources of Funds</td></tr>';
+      srcLines.forEach(([l,v])=>{ html += row(l, num(v), 'indent1'); });
+      html += '<tr class="section"><td colspan="2">Application of Funds</td></tr>';
+      appLines.forEach(([l,v])=>{ html += row(l, num(v), 'indent1'); });
+      html += '</table>';
+    }
+    const depLines = parsePipe(g('f_dep'));
+    if(depLines.length){
+      html += '<h3 class="ann">Annexure: Depreciation Chart</h3>';
+      html += '<table class="grid"><tr><th>Block of Assets</th><th>Rate</th><th>Amount</th></tr>';
+      depLines.forEach(d=>{ html += '<tr><td>'+(d[0]||'')+'</td><td>'+(d[1]||'')+'</td><td style="text-align:right">'+inr(num(d[2]))+'</td></tr>'; });
+      html += '</table>';
+    }
+    if(g('f_auditorname') || g('f_udin')){
+      html += '<h3 class="ann">Annexure: Tax Audit Information (u/s 44AB)</h3>';
+      html += '<table class="grid">';
+      html += '<tr><td><strong>Auditor Name</strong></td><td>'+g('f_auditorname')+'</td></tr>';
+      html += '<tr><td><strong>Membership No.</strong></td><td>'+g('f_auditormemno')+'</td></tr>';
+      html += '<tr><td><strong>Audit Firm</strong></td><td>'+g('f_auditfirm')+'</td></tr>';
+      html += '<tr><td><strong>Firm PAN</strong></td><td>'+g('f_auditfirmpan')+'</td></tr>';
+      html += '<tr><td><strong>Date of Audit Report</strong></td><td>'+g('f_auditdate')+'</td></tr>';
+      html += '<tr><td><strong>UDIN</strong></td><td>'+g('f_udin')+'</td></tr>';
+      html += '</table>';
+    }
+  }
+
+  html += '<p style="margin-top:30px;">I, '+name+(father?(', son/daughter of '+father):'')+', do hereby declare that what is stated above is true to the best of my knowledge and belief.</p>';
+  html += '<p style="text-align:right; margin-top:50px;">('+name+')</p>';
+  html += '</div>';
+
+  document.getElementById('reportContainer').innerHTML = html;
+  document.getElementById('reportCard').style.display = 'block';
+  document.getElementById('reportCard').scrollIntoView({behavior:'smooth'});
+}
+
+/* ---------------- Word export ---------------- */
+function downloadWord(){
+  const content = document.getElementById('reportContainer').innerHTML;
+  if(!content){ alert('Please click "Generate Computation Sheet" first.'); return; }
+  const styles = document.querySelector('style').innerHTML;
+  const fullHtml = '<html><head><meta charset="utf-8"><style>'+styles+'</style></head><body>'+content+'</body></html>';
+  const converted = htmlDocx.asBlob(fullHtml);
+  const name = (document.getElementById('f_name').value || 'Computation').replace(/[^a-z0-9]+/gi,'_');
+  saveAs(converted, name+'_Computation.docx');
+}
+</script>
+</body>
+</html>
